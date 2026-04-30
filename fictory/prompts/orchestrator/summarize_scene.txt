@@ -1,0 +1,3 @@
+Summarize the following scene's prose in 1-2 sentences. Focus on what happened (events, key revelations, emotional turn) — not on how it was written. The summary will be passed to the writer of the NEXT scene as recent context.
+
+Return only the summary text, no preface, no quotes.

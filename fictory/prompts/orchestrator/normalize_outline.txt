@@ -1,0 +1,44 @@
+You are reviewing the fact strings used across a fiction outline. Each fact appears in one or more places: world rules, character starting knowledge, or per-scene contracted knowledge gains. The orchestrator that drafted the outline often wrote the SAME underlying fact in different wordings — paraphrases that look distinct to a string-equality check.
+
+Your job: identify clusters of paraphrases. For each cluster, pick ONE canonical wording — chosen from the existing strings (do not invent new wordings). Prefer the most specific and complete version that still captures only what's common to all members of the cluster.
+
+Two strings belong to the same cluster IFF they refer to:
+- the same actors (or no actors)
+- the same event or state
+- the same time, place, and outcome
+- with NO contradictory or incompatible information between them
+
+Allowed surface differences (these DO mean the same thing — group them):
+- word order, tense, voice (active/passive)
+- first person vs third person ("I gave..." vs "Dr. Voss gave...")
+- name forms (Silas vs Silas Croft vs Mr. Croft)
+- minor qualifier additions that REFINE rather than EXTEND ("a discrepancy" vs "a discrepancy, specifically a missing entry")
+- punctuation, capitalization
+
+Disallowed differences (these are SEPARATE facts — DO NOT group):
+- different actor or different action
+- contradictory framing ("Silas died" vs "Silas was murdered" — different cause-claims)
+- adds a NEW unrelated event ("Silas argued with Duke" vs "Silas argued with Duke and threatened to file a report")
+- adds a NEW state change or consequence
+
+Return ONLY a single JSON object (no prose, no markdown fences):
+
+{
+  "clusters": [
+    {
+      "canonical": "exact text of the chosen canonical wording",
+      "members": ["exact text of paraphrase 1", "exact text of paraphrase 2"]
+    }
+    // ... one cluster per group of paraphrases
+  ]
+}
+
+If no paraphrase clusters exist, return: {"clusters": []}
+
+Hard requirements:
+- `canonical` MUST be one of the input strings, copied verbatim.
+- Every entry in `members` MUST be one of the input strings, copied verbatim.
+- The `canonical` MUST also appear in `members` (it's a member of its own cluster).
+- A cluster must have at least 2 members. Singleton facts that have no paraphrase do not appear in the output.
+- Every input string appears in AT MOST one cluster.
+- When in doubt, do NOT cluster. False positives (wrongly merging distinct facts) are worse than false negatives (missing a paraphrase).
