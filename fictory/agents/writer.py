@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 
 from .. import llm
@@ -18,6 +19,12 @@ def write_scene(handoff: HandoffDocument) -> str:
 
 def _format_handoff(h: HandoffDocument) -> str:
     lines: list[str] = []
+
+    if h.rewrite_notes:
+        lines.append("=== REVISION NOTES (prior draft failed evaluation — fix these) ===")
+        lines.append(h.rewrite_notes)
+        lines.append("")
+
     lines.append(f"=== SCENE {h.scene_outline.scene_number} ===")
     lines.append(f"Arc position: {h.scene_outline.arc_position}")
     lines.append(f"Summary: {h.scene_outline.summary}")
@@ -25,10 +32,10 @@ def _format_handoff(h: HandoffDocument) -> str:
     for b in h.scene_outline.beats:
         lines.append(f"  - {b}")
 
-    if h.prior_scene_summary:
+    if h.story_so_far:
         lines.append("")
-        lines.append("=== PRIOR SCENE (recap) ===")
-        lines.append(h.prior_scene_summary)
+        lines.append("=== STORY SO FAR ===")
+        lines.append(h.story_so_far)
 
     lines.append("")
     lines.append("=== WORLD RULES ===")
@@ -46,8 +53,6 @@ def _format_handoff(h: HandoffDocument) -> str:
             lines.append("CONTRACT for this scene (must land by end of scene):")
             deliveries = ch.planned_delta.knowledge_to_gain
             if deliveries:
-                # Group facts by source so the writer sees who delivers what.
-                from collections import defaultdict
                 grouped: dict[str, list[str]] = defaultdict(list)
                 for d in deliveries:
                     if d.source == "delivered_by_character":

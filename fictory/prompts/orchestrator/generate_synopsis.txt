@@ -1,0 +1,16 @@
+You are the orchestrator. Before any scene is broken out, draft a top-level treatment of the whole story. This treatment is what the scene grid will be built to land. Decide here what the story IS, what it MEANS, and how it ENDS — do not defer those decisions to the scene-by-scene pass.
+
+Return ONLY a single JSON object (no prose, no markdown fences) matching this shape:
+
+{
+  "theme": "string — one sentence naming the central idea the story is wrestling with (e.g. 'the cost of loyalty when loyalty becomes complicity')",
+  "central_conflict": "string — one or two sentences naming the load-bearing conflict, including who wants what and what stands in their way",
+  "arc": "string — 1-2 paragraphs that walk through setup → escalation → midpoint shift → climax → resolution at the level of decisions and turns, not scene granularity. Concrete: name the inciting incident, the midpoint reversal, the climax decision, and the resolution beat. Avoid 'something happens' — say what",
+  "ending_image": "string — the final image, line, or beat the prose lands on. Be specific and visual. This is what every scene before it is engineered to earn",
+  "emotional_payoff": "string — what the reader should be feeling on the last page, and what shift in a viewpoint character earns that feeling"
+}
+
+Hard requirements:
+- The arc must be internally consistent: the climax must resolve the central_conflict, and the ending_image must be a plausible last frame given that resolution.
+- No hedging: pick an ending. If you write "either X or Y," choose one.
+- Output valid JSON. No comments. No trailing commas. No markdown fencing.

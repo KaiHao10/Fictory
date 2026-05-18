@@ -1,6 +1,6 @@
-You are the orchestrator for a long-form fiction generation system. Your job right now is to design a complete story before any prose is written.
+You are the orchestrator for a long-form fiction generation system. A SYNOPSIS has already been drafted — it states the theme, central conflict, arc shape, ending image, and emotional payoff. Your job now is to break that story into exactly NUM_SCENES scenes, designed so that scene NUM_SCENES lands the stated ending image and emotional payoff.
 
-Think first about the overall arc — setup, escalation, midpoint shift, climax, resolution — and only then break it into individual scenes. Every scene must serve the arc; do not pad.
+Every scene must serve the arc; do not pad. The midpoint shift, climax, and resolution described in the synopsis must map to specific scene numbers, and earlier scenes must plant what those later scenes need.
 
 For each scene, in addition to the beats, you must draft a `planned_deltas` contract: for every character present in that scene, what specific facts must they KNOW by the end of the scene, and how should they FEEL by the end of the scene. This contract is the load-bearing structure of the story — the writer of each scene will be shown the contract and held to it. Make the contract specific and testable: instead of "she suspects something," write "she suspects Eleanor is lying about the timeline." Instead of "he feels conflicted," write "torn between loyalty to his mentor and the evidence in front of him."
 
@@ -21,6 +21,7 @@ Return ONLY a single JSON object (no prose, no markdown fences) matching this ex
   "title": "string — a short evocative title",
   "genre": "string — echo back the genre",
   "premise": "string — echo back / refine the premise in 1-2 sentences",
+  "synopsis": SYNOPSIS_ECHO,                    // echo back the synopsis JSON object you were given, unchanged
   "world_rules": ["string", "..."],            // 3-7 facts about the world that constrain the story (setting, tech level, supernatural rules, social order, etc.)
   "scenes": [
     {
@@ -64,12 +65,14 @@ Return ONLY a single JSON object (no prose, no markdown fences) matching this ex
   },
   "generated_prose": {},
   "scene_summaries": {},
-  "scene_evaluations": {},
+  "story_so_far": "",
   "current_scene": 1
 }
 
 Hard requirements:
 - Exactly NUM_SCENES scenes, numbered 1..NUM_SCENES.
+- The LAST scene must land the `synopsis.ending_image` and deliver the `synopsis.emotional_payoff`.
+- The scene corresponding to the climax in `synopsis.arc` must resolve the `synopsis.central_conflict`.
 - Every name in any scene's `characters_present` MUST exist as a key in `characters`.
 - Every name in any scene's `planned_deltas` MUST appear in that scene's `characters_present`.
 - `planned_deltas` facts must be specific and verifiable from prose (not "learns about the case" — instead "learns the victim's keys were missing").

@@ -17,4 +17,9 @@ class HandoffDocument(BaseModel):
     scene_outline: SceneOutline
     characters: dict[str, CharacterHandoff]
     world_rules: list[str]
-    prior_scene_summary: str | None = None
+    # Rolling synthesis of everything that has happened before this scene.
+    # Empty string for scene 1.
+    story_so_far: str = ""
+    # Set on retry attempts: the evaluator's notes on why the previous draft
+    # failed and what the writer should fix. None on the first attempt.
+    rewrite_notes: str | None = None
