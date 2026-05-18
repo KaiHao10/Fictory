@@ -4,25 +4,20 @@ from .. import llm
 from ..models.handoff import CharacterHandoff, HandoffDocument
 from ..models.story_bible import (
     Character,
-    CharacterState,
-    CharacterStateSnapshot,
-    ContractCheckResult,
-    PlannedDelta,
-    PlannedKnowledgeDelivery,
-    SceneEvaluation,
-    SceneOutline,
     StoryBible,
+    Synopsis,
     VoiceExample,
 )
+from ..models.verdict import SceneVerdict
+
+PROMPTS = Path(__file__).parent.parent / "prompts" / "orchestrator"
+
+VOICE_RECENT_CAP = 10
+VOICE_BEST_CAP = 5
 
 
-def _snapshot_state(ch: Character, scene_number: int) -> None:
-    """Record a snapshot of `ch.state` keyed by scene_number into state_history.
-    Use scene_number=0 for the initial seeded state, N for the end of scene N."""
-    ch.state_history[scene_number] = CharacterStateSnapshot(
-        knowledge=list(ch.state.knowledge),
-        emotional_state=ch.state.emotional_state,
-    )
+def _load_prompt(name: str) -> str:
+    return (PROMPTS / name).read_text()
 
 
 def _dedup(xs: list[str]) -> list[str]:
@@ -169,15 +164,11 @@ def validate_and_backfill(bible: StoryBible) -> list[str]:
                         f"WARN scene {scene.scene_number}: fact '{fact}' delivered_by '{deliverer}' "
                         f"who is not present in this scene — receiver {receiver_name} can't hear it."
                     )
-                    # No backfill repairs absence-from-scene; flag and move on.
                     continue
                 if fact in world or fact in projected[deliverer]:
-                    continue  # precondition met, nothing to do
+                    continue  # precondition met
                 # Seed-backfill: the deliverer must know this from the start.
                 bible.characters[deliverer].state.knowledge.append(fact)
-                seed_snap = bible.characters[deliverer].state_history.get(0)
-                if seed_snap is not None:
-                    seed_snap.knowledge.append(fact)
                 projected[deliverer].add(fact)
                 log.append(
                     f"BACKFILL scene {scene.scene_number}: '{fact}' added to {deliverer}.seed "
@@ -191,40 +182,48 @@ def validate_and_backfill(bible: StoryBible) -> list[str]:
 
     return log
 
-PROMPTS = Path(__file__).parent.parent / "prompts" / "orchestrator"
 
-VOICE_RECENT_CAP = 10
-VOICE_BEST_CAP = 5
+def generate_synopsis(premise: str, genre: str, num_scenes: int) -> Synopsis:
+    system = _load_prompt("generate_synopsis.txt")
+    user = (
+        f"Genre: {genre}\n"
+        f"Number of scenes the story will be told in: {num_scenes}\n"
+        f"Premise: {premise}\n\n"
+        f"Draft the synopsis JSON now."
+    )
+    data = llm.chat_json(system=system, user=user, max_tokens=2048, temperature=0.7)
+    return Synopsis.model_validate(data)
 
 
-def _load_prompt(name: str) -> str:
-    return (PROMPTS / name).read_text()
+def generate_outline(
+    premise: str, genre: str, num_scenes: int, synopsis: Synopsis
+) -> tuple[StoryBible, list[str], list[str]]:
+    """Generate the scene-grid outline given a pre-drafted synopsis.
 
-
-def generate_outline(premise: str, genre: str, num_scenes: int) -> StoryBible:
+    Returns (bible, normalize_log, backfill_log). The logs are transient —
+    pipeline prints them; they are not persisted on the bible.
+    """
     system = _load_prompt("generate_outline.txt").replace("NUM_SCENES", str(num_scenes))
+    synopsis_json = synopsis.model_dump_json(indent=2)
     user = (
         f"Genre: {genre}\n"
         f"Number of scenes: {num_scenes}\n"
         f"Premise: {premise}\n\n"
+        f"SYNOPSIS (drafted in the previous step — your scene grid must land this):\n"
+        f"{synopsis_json}\n\n"
         f"Generate the JSON now."
     )
     data = llm.chat_json(system=system, user=user, max_tokens=16384, temperature=0.7)
+    # Ensure the synopsis we drafted is what's saved, regardless of what the LLM echoed.
+    data["synopsis"] = synopsis.model_dump()
     bible = StoryBible.model_validate(data)
-    # Snapshot the initial seeded state for every character at scene 0.
-    for ch in bible.characters.values():
-        _snapshot_state(ch, 0)
     # Normalize paraphrased fact strings BEFORE validation so the validator's
     # exact-match checks operate on canonical wordings.
-    bible.normalize_log = normalize_fact_strings(bible)
+    normalize_log = normalize_fact_strings(bible)
     # Validate the outline's contract chain and seed-backfill any unearned
     # deliveries so the writer never receives an impossible contract.
-    bible.backfill_log = validate_and_backfill(bible)
-    # Re-snapshot scene 0: normalization may have rewritten seeded knowledge
-    # strings, and backfill may have added new ones.
-    for ch in bible.characters.values():
-        _snapshot_state(ch, 0)
-    return bible
+    backfill_log = validate_and_backfill(bible)
+    return bible, normalize_log, backfill_log
 
 
 def summarize_scene(prose: str) -> str:
@@ -232,7 +231,22 @@ def summarize_scene(prose: str) -> str:
     return llm.chat(system=system, user=prose, max_tokens=300, temperature=0.3)
 
 
-def assemble_handoff(bible: StoryBible, scene_number: int) -> HandoffDocument:
+def update_story_so_far(bible: StoryBible, scene_number: int, prose: str) -> str:
+    """Roll the 'story so far' narrative forward to include the scene just written."""
+    system = _load_prompt("update_story_so_far.txt")
+    previous = bible.story_so_far or "(no previous story-so-far — this is the first scene)"
+    user = (
+        f"SCENE NUMBER JUST CONCLUDED: {scene_number}\n\n"
+        f"PREVIOUS STORY SO FAR:\n{previous}\n\n"
+        f"PROSE OF SCENE {scene_number}:\n{prose}\n\n"
+        f"Produce the updated story-so-far narrative now. Plain prose only."
+    )
+    return llm.chat(system=system, user=user, max_tokens=1500, temperature=0.3).strip()
+
+
+def assemble_handoff(
+    bible: StoryBible, scene_number: int, rewrite_notes: str | None = None
+) -> HandoffDocument:
     scene = next(s for s in bible.scenes if s.scene_number == scene_number)
     char_handoffs: dict[str, CharacterHandoff] = {}
     for name in scene.characters_present:
@@ -246,12 +260,12 @@ def assemble_handoff(bible: StoryBible, scene_number: int) -> HandoffDocument:
             state=ch.state,
             planned_delta=scene.planned_deltas.get(name),
         )
-    prior = bible.scene_summaries.get(scene_number - 1) if scene_number > 1 else None
     return HandoffDocument(
         scene_outline=scene,
         characters=char_handoffs,
         world_rules=list(bible.world_rules),
-        prior_scene_summary=prior,
+        story_so_far=bible.story_so_far,
+        rewrite_notes=rewrite_notes,
     )
 
 
@@ -270,133 +284,48 @@ def _select_voice_examples(ch: Character) -> list[str]:
     return out
 
 
-def update_bible(bible: StoryBible, scene_number: int, prose: str) -> StoryBible:
+def apply_scene(bible: StoryBible, scene_number: int, verdict: SceneVerdict) -> StoryBible:
+    """Mechanically apply the verdict's findings to character state.
+
+    State evolves strictly from the outline's planned_deltas, gated by the
+    evaluator's per-fact and per-emotion landing decisions. No organic-fact
+    channel from prose — the orchestrator is the only source of plot truth.
+    """
     scene = next(s for s in bible.scenes if s.scene_number == scene_number)
-    present = {n: bible.characters[n] for n in scene.characters_present if n in bible.characters}
 
-    # Build a per-character block that includes the contract for this scene.
-    char_blocks: list[str] = []
-    for name, ch in present.items():
-        delta = scene.planned_deltas.get(name)
-        if delta and delta.knowledge_to_gain:
-            fact_lines = []
-            for d in delta.knowledge_to_gain:
-                attribution = f"source={d.source}"
-                if d.delivered_by:
-                    attribution += f", delivered_by={d.delivered_by}"
-                if d.via:
-                    attribution += f", via={d.via}"
-                fact_lines.append(f"      - [{attribution}] {d.fact}")
-            facts_block = "\n".join(fact_lines)
-            contract_text = (
-                f"  CONTRACT for this scene:\n"
-                f"    knowledge_to_gain:\n{facts_block}\n"
-                f"    target_emotional_state: {delta.target_emotional_state}\n"
-            )
-        elif delta:
-            contract_text = (
-                f"  CONTRACT for this scene:\n"
-                f"    knowledge_to_gain: (none)\n"
-                f"    target_emotional_state: {delta.target_emotional_state}\n"
-            )
-        else:
-            contract_text = "  CONTRACT for this scene: (none — character is present but state should not change)\n"
-        char_blocks.append(
-            f"--- {name} ---\n"
-            f"  profile: {ch.profile}\n"
-            f"  current knowledge: {ch.state.knowledge}\n"
-            f"  current emotional_state: {ch.state.emotional_state}\n"
-            f"{contract_text}"
-        )
-    state_block = "\n".join(char_blocks)
-
-    system = _load_prompt("update_bible.txt")
-    user = (
-        f"SCENE OUTLINE (scene {scene_number}):\n"
-        f"summary: {scene.summary}\n"
-        f"beats: {scene.beats}\n"
-        f"arc_position: {scene.arc_position}\n\n"
-        f"CURRENT WORLD RULES:\n- " + "\n- ".join(bible.world_rules) + "\n\n"
-        f"CHARACTERS IN SCENE (with contracts):\n{state_block}\n\n"
-        f"SCENE PROSE:\n{prose}\n\n"
-        f"Return the JSON update object now. Remember: PASS 1 verifies the contract, PASS 2 captures organic facts."
-    )
-
-    data = llm.chat_json(system=system, user=user, max_tokens=8192, temperature=0.3)
-
-    char_updates = data.get("character_updates", {}) or {}
-
-    # Build the SceneEvaluation as we go.
-    evaluation = SceneEvaluation(scene_number=scene_number)
-
-    for name, upd in char_updates.items():
+    for name in scene.characters_present:
         ch = bible.characters.get(name)
         if ch is None:
             continue
+        delta = scene.planned_deltas.get(name)
+        cv = verdict.per_character.get(name)
 
-        # --- PASS 1 results: contract check ---
-        contract_results: list[ContractCheckResult] = []
-        for r in upd.get("contract_results") or []:
-            fact = (r.get("planned_fact") or "").strip()
-            if not fact:
-                continue
-            contract_results.append(
-                ContractCheckResult(
-                    planned_fact=fact,
-                    landed=bool(r.get("landed", False)),
-                    evidence=(r.get("evidence") or None),
+        if delta and cv:
+            existing = set(ch.state.knowledge)
+            for delivery in delta.knowledge_to_gain:
+                landed = cv.facts_landed.get(delivery.fact, False)
+                if landed and delivery.fact not in existing:
+                    ch.state.knowledge.append(delivery.fact)
+                    existing.add(delivery.fact)
+            if cv.emotional_state_landed and delta.target_emotional_state:
+                ch.state.emotional_state = delta.target_emotional_state
+
+        # Voice examples — appended from the evaluator's picks.
+        if cv:
+            for vd in cv.voice_examples:
+                line = (vd.line or "").strip()
+                if not line:
+                    continue
+                ch.voice_examples.append(
+                    VoiceExample(
+                        line=line,
+                        scene_number=scene_number,
+                        is_best=bool(vd.is_best),
+                    )
                 )
-            )
-        evaluation.contract_results[name] = contract_results
-        evaluation.emotional_state_landed[name] = bool(upd.get("emotional_state_landed", False))
+            _trim_voice_bank(ch)
 
-        # --- Apply: contracted facts that landed go into knowledge ---
-        existing = set(ch.state.knowledge)
-        for cr in contract_results:
-            if cr.landed and cr.planned_fact not in existing:
-                ch.state.knowledge.append(cr.planned_fact)
-                existing.add(cr.planned_fact)
-
-        # --- PASS 2 results: organic facts ---
-        organic = [k for k in (upd.get("organic_knowledge") or []) if k]
-        evaluation.organic_knowledge[name] = list(organic)
-        for k in organic:
-            if k not in existing:
-                ch.state.knowledge.append(k)
-                existing.add(k)
-
-        # --- Emotional state replacement ---
-        new_emo = upd.get("emotional_state")
-        if new_emo:
-            ch.state.emotional_state = new_emo
         ch.state.last_updated_scene = scene_number
-
-        # --- Voice examples ---
-        for ex in upd.get("voice_examples") or []:
-            line = ex.get("line", "").strip()
-            if not line:
-                continue
-            ch.voice_examples.append(
-                VoiceExample(
-                    line=line,
-                    scene_number=scene_number,
-                    is_best=bool(ex.get("is_best", False)),
-                )
-            )
-        _trim_voice_bank(ch)
-
-    for fact in data.get("world_rules_added") or []:
-        if fact and fact not in bible.world_rules:
-            bible.world_rules.append(fact)
-
-    # Persist the per-scene evaluation.
-    bible.scene_evaluations[scene_number] = evaluation
-
-    # Snapshot end-of-scene state for every character (not just those who
-    # appeared this scene — so absent characters still have a frame for this
-    # scene number, which simplifies diff/eval logic).
-    for ch in bible.characters.values():
-        _snapshot_state(ch, scene_number)
 
     return bible
 

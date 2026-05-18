@@ -32,7 +32,7 @@ class PlannedDelta(BaseModel):
 
     Drafted at outline time. By the end of the scene, the character should
     KNOW everything in `knowledge_to_gain` and FEEL `target_emotional_state`.
-    The writer is shown this contract; update_bible verifies it landed.
+    The writer is shown this contract; the evaluator verifies it landed.
     """
 
     knowledge_to_gain: list[PlannedKnowledgeDelivery] = Field(default_factory=list)
@@ -52,36 +52,11 @@ class PlannedDelta(BaseModel):
         return v
 
 
-class ContractCheckResult(BaseModel):
-    """Per-fact verdict from update_bible's contract pass."""
-
-    planned_fact: str
-    landed: bool
-    evidence: str | None = None  # short quote / paraphrase from prose if landed
-
-
-class SceneEvaluation(BaseModel):
-    """Eval-time record for one scene: did the writer deliver the contract,
-    and what did the prose introduce organically?"""
-
-    scene_number: int
-    contract_results: dict[str, list[ContractCheckResult]] = Field(default_factory=dict)
-    organic_knowledge: dict[str, list[str]] = Field(default_factory=dict)
-    emotional_state_landed: dict[str, bool] = Field(default_factory=dict)
-
-
-class CharacterStateSnapshot(BaseModel):
-    """A snapshot of a character's dynamic state at a single point in time."""
+class CharacterState(BaseModel):
+    """Latest dynamic state for a character."""
 
     knowledge: list[str] = Field(default_factory=list)
     emotional_state: str = ""
-
-
-class CharacterState(CharacterStateSnapshot):
-    """Latest dynamic state. Inherits knowledge + emotional_state from snapshot
-    and adds bookkeeping. Use snapshots in `Character.state_history` for a
-    per-scene record."""
-
     last_updated_scene: int = 0  # 0 = initial seed, N = after scene N
 
 
@@ -96,9 +71,6 @@ class Character(BaseModel):
     profile: str
     voice_examples: list[VoiceExample] = Field(default_factory=list)
     state: CharacterState = Field(default_factory=CharacterState)
-    # Per-scene snapshots of state. Key 0 = initial seeded state (before scene 1);
-    # key N = state at end of scene N (after update_bible has run).
-    state_history: dict[int, CharacterStateSnapshot] = Field(default_factory=dict)
 
 
 class SceneOutline(BaseModel):
@@ -108,26 +80,33 @@ class SceneOutline(BaseModel):
     characters_present: list[str]
     arc_position: str
     # Per-character contract for this scene (name -> what they should learn / feel
-    # by end-of-scene). Drafted at outline time; verified post-hoc by update_bible.
+    # by end-of-scene). Drafted at outline time; verified post-hoc by the evaluator.
     planned_deltas: dict[str, PlannedDelta] = Field(default_factory=dict)
+
+
+class Synopsis(BaseModel):
+    """Top-level story treatment. Drafted before the scene grid so the outline
+    has a target to land. The ending image and emotional payoff are the
+    load-bearing pieces — they tell the orchestrator how the story must end."""
+
+    theme: str
+    central_conflict: str
+    arc: str            # 1-2 paragraphs covering setup → escalation → midpoint → climax → resolution
+    ending_image: str   # the final beat the story lands on
+    emotional_payoff: str
 
 
 class StoryBible(BaseModel):
     title: str
     genre: str
     premise: str
+    synopsis: Synopsis
     world_rules: list[str] = Field(default_factory=list)
     scenes: list[SceneOutline]
     characters: dict[str, Character]
     generated_prose: dict[int, str] = Field(default_factory=dict)
     scene_summaries: dict[int, str] = Field(default_factory=dict)
-    # Per-scene evaluation records. Keyed by scene_number (1..N). Populated by
-    # update_bible after each scene runs.
-    scene_evaluations: dict[int, SceneEvaluation] = Field(default_factory=dict)
-    # Audit log of any seed-state backfills the orchestrator made during outline
-    # validation, so unearned-knowledge fixes are visible/auditable.
-    backfill_log: list[str] = Field(default_factory=list)
-    # Audit log of fact-string normalizations applied to the outline (paraphrase
-    # collapse). Runs before backfill validation.
-    normalize_log: list[str] = Field(default_factory=list)
+    # Rolling "story so far" narrative, ~300-500 words, updated by the
+    # orchestrator after each scene. Empty before scene 1.
+    story_so_far: str = ""
     current_scene: int = 1
