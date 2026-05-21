@@ -4,7 +4,9 @@ from pathlib import Path
 from .. import llm
 from ..models.handoff import HandoffDocument
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "writer" / "write_scene.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "writer" / "write_scene.txt").read_text(
+    encoding="utf-8"
+)
 
 
 def write_scene(handoff: HandoffDocument) -> str:

@@ -13,11 +13,11 @@ def story_dir(story_id: str) -> Path:
 
 def save(story_id: str, bible: StoryBible) -> None:
     d = story_dir(story_id)
-    (d / "bible.json").write_text(bible.model_dump_json(indent=2))
+    (d / "bible.json").write_text(bible.model_dump_json(indent=2), encoding="utf-8")
     for n, prose in bible.generated_prose.items():
-        (d / f"scene_{int(n):03d}.txt").write_text(prose)
+        (d / f"scene_{int(n):03d}.txt").write_text(prose, encoding="utf-8")
 
 
 def load(story_id: str) -> StoryBible:
     path = STORIES_DIR / story_id / "bible.json"
-    return StoryBible.model_validate_json(path.read_text())
+    return StoryBible.model_validate_json(path.read_text(encoding="utf-8"))

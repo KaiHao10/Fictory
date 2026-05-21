@@ -4,7 +4,9 @@ from .. import llm
 from ..models.story_bible import StoryBible
 from ..models.verdict import SceneVerdict
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "evaluator" / "evaluate_scene.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "evaluator" / "evaluate_scene.txt").read_text(
+    encoding="utf-8"
+)
 
 
 def evaluate_scene(bible: StoryBible, scene_number: int, prose: str) -> SceneVerdict:

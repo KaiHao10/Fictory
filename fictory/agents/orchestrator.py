@@ -17,7 +17,7 @@ VOICE_BEST_CAP = 5
 
 
 def _load_prompt(name: str) -> str:
-    return (PROMPTS / name).read_text()
+    return (PROMPTS / name).read_text(encoding="utf-8")
 
 
 def _dedup(xs: list[str]) -> list[str]:

@@ -39,7 +39,15 @@ def chat(system: str, user: str, max_tokens: int = 4096, temperature: float = 0.
             if getattr(resp, "stop_reason", None) == "max_tokens":
                 print(f"[llm] WARNING: response truncated at max_tokens={max_tokens}")
             parts = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
-            return "".join(parts).strip()
+            text = "".join(parts).strip()
+            if not text:
+                stop_reason = getattr(resp, "stop_reason", None)
+                content_types = [getattr(b, "type", type(b).__name__) for b in resp.content]
+                print(
+                    "[llm] WARNING: empty response "
+                    f"(stop_reason={stop_reason}, content_types={content_types})"
+                )
+            return text
         except (APIConnectionError, APITimeoutError) as e:
             last_err = e
             wait = 2 ** attempt
