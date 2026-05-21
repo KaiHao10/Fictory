@@ -297,6 +297,8 @@ LLM APIs fail in fun ways. Fictory is built to handle the common ones.
 
 ## How to use it
 
+### macOS / Linux
+
 **Install once:**
 ```bash
 python3 -m venv .venv
@@ -311,6 +313,25 @@ cp .env.example .env
   --premise "A retired locksmith is hired to crack a safe she sealed forty years ago." \
   --genre "literary thriller" \
   --scenes 8 \
+  --story-id "the-locksmith"
+```
+
+### Windows
+
+**Install once:**
+```powershell
+python -m venv .venv
+.\.venv\Scripts\pip install -e .
+copy .env.example .env
+# edit .env and put your DEEPSEEK_API_KEY in
+```
+
+**Run a story:**
+```powershell
+.\.venv\Scripts\python main.py `
+  --premise "A retired locksmith is hired to crack a safe she sealed forty years ago." `
+  --genre "literary thriller" `
+  --scenes 8 `
   --story-id "the-locksmith"
 ```
 
